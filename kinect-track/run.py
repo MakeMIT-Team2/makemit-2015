@@ -1,4 +1,4 @@
-import freenect, sys, frame_convert, cv, time, math
+import freenect, sys, cv, time, math
 import numpy as np
 import cv2
 
@@ -13,7 +13,7 @@ fgbg = cv2.BackgroundSubtractorMOG()
 
 def update_depth():
 	depth, timestamp = freenect.sync_get_depth()
-	return frame_convert.pretty_depth_cv(depth)
+	return depth
 
 def update_frame():
 	frame, timestamp = freenect.sync_get_video()
@@ -46,7 +46,8 @@ def update_frame():
 	if n > 0:
 		x_av = x_av/n
 		y_av = y_av/n
-		print (x_av, y_av)
+		return frame, x_av, y_av
+	return frame, False, False
 	# for i in range(len(frame)):
 	# 	for j in range(len(frame[i])):
 	# 		frame[i][j] = np.bitwise_and(frame[i][j], fgmask[i][j])
@@ -54,22 +55,79 @@ def update_frame():
 	# frame.copyTo(dst, fgmask)
 	# cv.Copy(frame, frame, mask=fgmask)
 	# frame = cv2.bitwise_and(frame, fgmask)
-	return frame
 
 def get_xyz(depth, px, py):
-	RANGE_X = 0
-	RANGE_Y = 0
-	RANGE_DEPTH = 4
-	MAX_PX = 640
-	MAX_PY = 480
+	depth = float(depth)
+	px = float(px)
+	py = float(py)
+	RANGE_X = 0.0
+	RANGE_Y = 0.0
+	RANGE_DEPTH = 4.0
+	MAX_PX = 640.0
+	MAX_PY = 480.9
 	# 50cm to 4m
 	# should figure out what the x/y shit looks like at 4m away
-	m_depth = (0.1236 * math.tan(rawDisparity / 2842.5 + 1.1863)) * 100
-	x = -(RANGE_X * ((MAX_PX/2 - px)/MAX_PX) * (m_depth/RANGE_DEPTH)) + (RANGE_X/2)
-	y = -(RANGE_Y * ((MAX_PY/2 - py)/MAX_PY) * (m_depth/RANGE_DEPTH)) + (RANGE_Y/2)
-	z = m_depth
+	cm_depth = (0.1236 * math.tan(rawDisparity / 2842.5 + 1.1863)) #depth in centimeters
+	x = -(RANGE_X * ((MAX_PX/2 - px)/MAX_PX) * (cm_depth/RANGE_DEPTH)) + (RANGE_X/2)
+	y = -(RANGE_Y * ((MAX_PY/2 - py)/MAX_PY) * (cm_depth/RANGE_DEPTH)) + (RANGE_Y/2)
+	z = cm_depth
 
 	return [x, y, z]
+
+def get_av_depth(x, y):
+	n = 0
+	su = 0
+	s = get_depth_at_point(x, y)
+	if s > 0:
+		n = n + 1
+		su = su + s
+
+	s = get_depth_at_point(x+1, y)
+	if s > 0:
+		n = n + 1
+		su = su + s
+
+	s = get_depth_at_point(x, y+1)
+	if s > 0:
+		n = n + 1
+		su = su + s
+
+	s = get_depth_at_point(x+1, y+1)
+	if s > 0:
+		n = n + 1
+		su = su + s
+
+	s = get_depth_at_point(x-1, y)
+	if s > 0:
+		n = n + 1
+		su = su + s
+
+	s = get_depth_at_point(x, y-1)
+	if s > 0:
+		n = n + 1
+		su = su + s
+
+	s = get_depth_at_point(x-1, y-1)
+	if s > 0:
+		n = n + 1
+		su = su + s
+
+	s = get_depth_at_point(x-1, y+1)
+	if s > 0:
+		n = n + 1
+		su = su + s
+
+	s = get_depth_at_point(x+1, y-1)
+	if s > 0:
+		n = n + 1
+		su = su + s
+
+	return float(su)/n
+
+def get_depth_at_point(x, y):
+	if x < 631 && y < 480 && y > -1 && x > -1:
+		return depth[x][y]
+	return 0
 
 #depth
 	# array of arrays
@@ -90,8 +148,13 @@ def get_xyz(depth, px, py):
 # cv.CreateTrackbar('threshold', 'Video', bval, 200,  change_bval)
 
 while True:
-	frame = update_frame()
-	cv.ShowImage('Depth', update_depth())
+	frame, px, py = update_frame()
+	depth = update_depth()
+	if not px == False:
+		depth = get_av_depth(px, py)
+		x, y, z = get_xyz(depth, px, py)
+	print x, y, z
+	cv2.imshow('Depth', depth)
 	cv2.imshow('Video', frame)
 	if cv.WaitKey(10) == 27:
 		break
