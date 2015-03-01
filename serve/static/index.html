@@ -47,16 +47,13 @@
 				info.style.top = '10px';
 				info.style.width = '100%';
 				info.style.textAlign = 'center';
-				info.innerHTML = '<a href="http://threejs.org" target="_blank">three.js</a> - voxel painter - webgl<br><strong>click</strong>: add voxel, <strong>control + click</strong>: remove voxel, <strong>shift + click</strong>: rotate';
 				container.appendChild( info );
 				camera = new THREE.PerspectiveCamera( 45, window.innerWidth / window.innerHeight, 1, 10000 );
-				camera.position.y = 3000;
-				camera.position.x = 200;
-				camera.position.z = 200;
+				camera.position.y = 3500;
 				var gui = new dat.GUI();
-				gui.add(camera.position, 'x');	
-				gui.add(camera.position, 'y');	
-				gui.add(camera.position, 'z');	
+				gui.add(camera.position, 'x');
+				gui.add(camera.position, 'y');
+				gui.add(camera.position, 'z');
 				scene = new THREE.Scene();
 				// roll-over helpers
 				rollOverGeo = new THREE.CubeGeometry( 50, 50, 50 );
