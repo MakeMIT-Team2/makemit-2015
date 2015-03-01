@@ -2,9 +2,13 @@ import freenect, sys, cv, time, math
 import numpy as np
 import cv2
 
+from socketIO_client import SocketIO, LoggingNamespace
+
+socketIO = SocketIO('0.0.0.0', 8080, LoggingNamespace)
+
 cv.NamedWindow('Depth')
 cv.NamedWindow('Video')
-
+lastcoords = [0, 0]
 mx = False
 my = False
 
@@ -17,60 +21,55 @@ def update_depth():
 
 def update_frame():
 	frame, timestamp = freenect.sync_get_video()
-	# a = -1
-	# b = -1
-	# for i in frame:
-	# 	a = a + 1
-	# 	b = -1
-	# 	for j in i:
-	# 		b = b + 1
-	# 		if j[0] > 47 and j[0] < 100 and j[1] > 177 and j[2] > 220:
-	# 			frame[a][b] = [0, 0, 255]
-	# dst = np.array(frame)
-	lowerBound = cv.Scalar(30, 120, 220);
-	upperBound = cv.Scalar(104, 230, 255);
+
+	lowerBound = cv.Scalar(255, 255, 255);
+	upperBound = cv.Scalar(255, 255, 255);
+	frame = cv2.inRange(frame, lowerBound, upperBound);
 	fgmask = fgbg.apply(frame)
 	frame = cv2.bitwise_and(frame,frame,mask=fgmask)
-	frame = cv2.inRange(frame, lowerBound, upperBound);
 	contours, hier = cv2.findContours(frame,cv2.RETR_LIST,cv2.CHAIN_APPROX_SIMPLE)
 	x_av = 0
 	y_av = 0
 	n = 0
+	coord_candidates = []
 	for cnt in contours:
-		if 5<cv2.contourArea(cnt):
-			for i in cnt:
-				n = n + 1
-				x_av = x_av + i[0][0]
-				y_av = y_av + i[0][1]
-			break
-	if n > 0:
-		x_av = x_av/n
-		y_av = y_av/n
-		return frame, x_av, y_av
+		n =0
+		x_av = 0
+		y_av = 0
+		for i in cnt:
+			n = n + 1
+			x_av = x_av + i[0][0]
+			y_av = y_av + i[0][1]
+		x_av = float(x_av)/n
+		y_av = float(y_av)/n
+		coord_candidates.append([x_av, y_av])
+
+	if len(coord_candidates) > 0:
+		best = [99999999, 0, 0]
+		for i in coord_candidates:
+			dist = (i[0] - lastcoords[0]) * (i[0] - lastcoords[0]) + (i[1] - lastcoords[1]) * (i[1] - lastcoords[1])
+			if dist < best[0]:
+				best = [dist, i[0], i[1]]
+		return frame, best[1], best[2]
+
 	return frame, False, False
-	# for i in range(len(frame)):
-	# 	for j in range(len(frame[i])):
-	# 		frame[i][j] = np.bitwise_and(frame[i][j], fgmask[i][j])
-	
-	# frame.copyTo(dst, fgmask)
-	# cv.Copy(frame, frame, mask=fgmask)
-	# frame = cv2.bitwise_and(frame, fgmask)
 
 def get_xyz(depth, px, py):
 	depth = float(depth)
 	px = float(px)
 	py = float(py)
-	RANGE_X = 0.0
-	RANGE_Y = 0.0
-	RANGE_DEPTH = 4.0
+	RANGE_X = 4.318
+	RANGE_Y = 3.2385
+	CORRECTION_Y = -0.301135642301
+	RANGE_DEPTH = 3.6068
 	MAX_PX = 640.0
-	MAX_PY = 480.9
+	MAX_PY = 480.0
 	# 50cm to 4m
 	# should figure out what the x/y shit looks like at 4m away
-	cm_depth = (0.1236 * math.tan(rawDisparity / 2842.5 + 1.1863)) #depth in centimeters
-	x = -(RANGE_X * ((MAX_PX/2 - px)/MAX_PX) * (cm_depth/RANGE_DEPTH)) + (RANGE_X/2)
-	y = -(RANGE_Y * ((MAX_PY/2 - py)/MAX_PY) * (cm_depth/RANGE_DEPTH)) + (RANGE_Y/2)
-	z = cm_depth
+	m_depth = (0.1236 * math.tan(depth / 2842.5 + 1.1863)) #depth in centimeters
+	x = -(RANGE_X * ((MAX_PX/2 - px)/MAX_PX) * (m_depth/RANGE_DEPTH)) + (RANGE_X/2)
+	y = -(RANGE_Y * ((MAX_PY/2 - py)/MAX_PY) * (m_depth/RANGE_DEPTH)) + (RANGE_Y/2) + CORRECTION_Y
+	z = m_depth
 
 	return [x, y, z]
 
@@ -122,11 +121,16 @@ def get_av_depth(x, y):
 		n = n + 1
 		su = su + s
 
+	if n == 0:
+		return 0
 	return float(su)/n
 
 def get_depth_at_point(x, y):
-	if x < 631 && y < 480 && y > -1 && x > -1:
-		return depth[x][y]
+	if x < 631 and y < 480 and y > -1 and x > -1:
+		d = depth[y][x]
+		if d > 2040:
+			return 0
+		return d 
 	return 0
 
 #depth
@@ -152,8 +156,14 @@ while True:
 	depth = update_depth()
 	if not px == False:
 		depth = get_av_depth(px, py)
-		x, y, z = get_xyz(depth, px, py)
-	print x, y, z
+		if depth > 0:
+			x, y, z = get_xyz(depth, px, py)
+			socketIO.emit('pos', {
+				'x':x,
+				'y':y,
+				'z':z
+			})
+			print x, y, z
 	cv2.imshow('Depth', depth)
 	cv2.imshow('Video', frame)
 	if cv.WaitKey(10) == 27:
